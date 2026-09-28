@@ -71,6 +71,7 @@ def main():
     cash=float(args.capital)
     close_equities=[]
     trades=0;turnover=0.0
+    total_fee_dollars=0.0
     cost_rate=args.fee_bps/10000
     peak=float(args.capital);max_dd=0.0
     # Initial signal is previous completed session, execution at next session open.
@@ -88,7 +89,9 @@ def main():
             # Liquidate positions first, then buy new targets. Cost charged each side.
             for s,q in list(positions.items()):
                 if q>0:
-                    cash+=q*opens[s]*(1-cost_rate)
+                    proceeds=q*opens[s]
+                    total_fee_dollars+=proceeds*cost_rate
+                    cash+=proceeds*(1-cost_rate)
                     trades+=1
             positions={}
             # Budget enough cash to cover fees; residual stays cash.
@@ -97,6 +100,7 @@ def main():
                 budget=investable*w
                 qty=budget/opens[s]
                 positions[s]=qty
+                total_fee_dollars+=qty*opens[s]*cost_rate
                 cash-=qty*opens[s]*(1+cost_rate)
                 trades+=1
         equity_close=cash+sum(q*closes[s] for s,q in positions.items())
@@ -110,6 +114,7 @@ def main():
     first=dates[0];last=dates[-1]
     spy=bars["SPY"]
     spy_return=float(spy.loc[last,"Close"]/spy.loc[first,"Open"]-1)
+    benchmark_equity=[args.capital*float(spy.loc[day,"Close"])/float(spy.loc[first,"Open"]) for day in dates]
     years=max((last-first).days/365.25,1/365.25)
     r={"mode":"BACKTEST_NO_ORDERS","start":str(first.date()),"end":str(last.date()),"sessions":len(dates),
        "universe":tickers,"fee_bps_each_side":args.fee_bps,"rebalance_days":args.rebalance_days,
@@ -118,9 +123,10 @@ def main():
        "annualized_return_pct":round(100*((ending/args.capital)**(1/years)-1),2),
        "max_drawdown_pct":round(100*max_dd,2),"SPY_return_pct":round(100*spy_return,2),
        "orders_simulated":trades,"turnover_weight_sum":round(turnover,2),
+       "total_fees_usd":round(total_fee_dollars,2),
        "caveats":"Research-only. Fixed 2026 universe creates survivorship/selection bias; no dividends, slippage beyond fees, taxes, liquidity, or broker fills. Partial shares; possible corporate-action distortions."}
     Path("backtest_output").mkdir(exist_ok=True)
     Path("backtest_output/results.json").write_text(json.dumps(r,indent=2),encoding="utf-8")
-    pd.DataFrame({"date":[str(d.date()) for d in dates],"equity":close_equities}).to_csv("backtest_output/equity.csv",index=False)
+    pd.DataFrame({"date":[str(d.date()) for d in dates],"equity":close_equities,"spy_equity":benchmark_equity}).to_csv("backtest_output/equity.csv",index=False)
     print(json.dumps(r,indent=2))
 if __name__=="__main__":main()
