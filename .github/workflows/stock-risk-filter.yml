@@ -1,0 +1,41 @@
+name: Stock Risk Filter Research
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  study:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install yfinance==0.2.65 numpy==2.2.6 pandas==2.3.3
+      - name: Baseline full period
+        run: |
+          python stock_historical_backtest.py --start 2023-01-01 --end 2026-09-28 --risk-filter off
+          mkdir -p risk_filter_output/baseline_full
+          cp backtest_output/* risk_filter_output/baseline_full/
+      - name: SPY MA200 filter full period
+        run: |
+          python stock_historical_backtest.py --start 2023-01-01 --end 2026-09-28 --risk-filter spy-ma200
+          mkdir -p risk_filter_output/filtered_full
+          cp backtest_output/* risk_filter_output/filtered_full/
+      - name: Baseline recent period
+        run: |
+          python stock_historical_backtest.py --start 2025-01-01 --end 2026-09-28 --risk-filter off
+          mkdir -p risk_filter_output/baseline_recent
+          cp backtest_output/* risk_filter_output/baseline_recent/
+      - name: SPY MA200 filter recent period
+        run: |
+          python stock_historical_backtest.py --start 2025-01-01 --end 2026-09-28 --risk-filter spy-ma200
+          mkdir -p risk_filter_output/filtered_recent
+          cp backtest_output/* risk_filter_output/filtered_recent/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stock-risk-filter-research
+          path: risk_filter_output/
+          if-no-files-found: warn
