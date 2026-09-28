@@ -1,0 +1,41 @@
+name: Stock Backtest Robustness
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  robustness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install yfinance==0.2.65 numpy==2.2.6 pandas==2.3.3
+      - name: Test first two calendar years
+        run: |
+          python stock_historical_backtest.py --start 2023-01-01 --end 2024-12-31 --fee-bps 10
+          mkdir -p robustness_output/2023-2024
+          cp backtest_output/* robustness_output/2023-2024/
+      - name: Test last two calendar years
+        run: |
+          python stock_historical_backtest.py --start 2025-01-01 --end 2026-09-28 --fee-bps 10
+          mkdir -p robustness_output/2025-2026
+          cp backtest_output/* robustness_output/2025-2026/
+      - name: Double trading cost
+        run: |
+          python stock_historical_backtest.py --start 2023-01-01 --end 2026-09-28 --fee-bps 20
+          mkdir -p robustness_output/double-cost
+          cp backtest_output/* robustness_output/double-cost/
+      - name: Quarterly-ish rebalance
+        run: |
+          python stock_historical_backtest.py --start 2023-01-01 --end 2026-09-28 --rebalance-days 63 --fee-bps 10
+          mkdir -p robustness_output/quarterly
+          cp backtest_output/* robustness_output/quarterly/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stock-backtest-robustness
+          path: robustness_output/
+          if-no-files-found: warn
