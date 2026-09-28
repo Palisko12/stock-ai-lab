@@ -1,0 +1,36 @@
+name: Stock Execution Audit
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  net-trade-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install yfinance==0.2.65 numpy==2.2.6 pandas==2.3.3
+      - name: Full period net-trade execution
+        run: |
+          python stock_historical_backtest.py --start 2023-01-01 --end 2026-09-28 --fee-bps 10
+          mkdir -p audit_output/full
+          cp backtest_output/* audit_output/full/
+      - name: Recent period net-trade execution
+        run: |
+          python stock_historical_backtest.py --start 2025-01-01 --end 2026-09-28 --fee-bps 10
+          mkdir -p audit_output/recent
+          cp backtest_output/* audit_output/recent/
+      - name: Double-cost net-trade execution
+        run: |
+          python stock_historical_backtest.py --start 2023-01-01 --end 2026-09-28 --fee-bps 20
+          mkdir -p audit_output/double_cost
+          cp backtest_output/* audit_output/double_cost/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stock-execution-audit
+          path: audit_output/
+          if-no-files-found: warn
