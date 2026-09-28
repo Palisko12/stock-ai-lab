@@ -1,0 +1,41 @@
+name: Stock Frozen Historical Validation
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  historical-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install yfinance==0.2.65 numpy==2.2.6 pandas==2.3.3
+      - name: 2018 through 2020 frozen strategy
+        run: |
+          python stock_historical_backtest.py --start 2018-01-01 --end 2020-12-31 --risk-filter spy-ma200
+          mkdir -p frozen_validation_output/2018-2020
+          cp backtest_output/* frozen_validation_output/2018-2020/
+      - name: 2021 through 2022 frozen strategy
+        run: |
+          python stock_historical_backtest.py --start 2021-01-01 --end 2022-12-31 --risk-filter spy-ma200
+          mkdir -p frozen_validation_output/2021-2022
+          cp backtest_output/* frozen_validation_output/2021-2022/
+      - name: 2018 through 2022 double cost frozen strategy
+        run: |
+          python stock_historical_backtest.py --start 2018-01-01 --end 2022-12-31 --risk-filter spy-ma200 --fee-bps 20
+          mkdir -p frozen_validation_output/2018-2022-double-cost
+          cp backtest_output/* frozen_validation_output/2018-2022-double-cost/
+      - name: 2018 through 2022 unfiltered reference
+        run: |
+          python stock_historical_backtest.py --start 2018-01-01 --end 2022-12-31 --risk-filter off
+          mkdir -p frozen_validation_output/2018-2022-unfiltered
+          cp backtest_output/* frozen_validation_output/2018-2022-unfiltered/
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stock-frozen-validation
+          path: frozen_validation_output/
+          if-no-files-found: warn
