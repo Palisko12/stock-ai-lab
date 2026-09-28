@@ -178,7 +178,8 @@ scripts/                        fetch_paper_performance.py
 
 ## ⚙️ Deployment
 
-- **Production:** GCP Cloud Run job `daily-report` runs `daily_report.py --trade` at **7:00 AM Pacific** (10:00 AM ET) on trading days (Alpaca paper). Secrets are runtime env vars, not baked into the image. The 7 AM run uses the previous completed US session.
+- **Production:** GCP Cloud Run job `daily-report` runs `daily_report.py --trade` at **7:00 AM Pacific** (10:00 AM ET) on trading days (Alpaca paper). Secrets are runtime env vars, not baked into the image (`ALPACA_*`, `REPORT_EMAIL_*`, `ANTHROPIC_API_KEY`, `CC_WATCH`); the job runs on 2 vCPU / 4 GiB with a 60-minute timeout. The 7 AM run uses the previous completed US session.
+- **After every `gcloud run jobs deploy`,** re-check the env vars with `gcloud run jobs describe daily-report --region us-central1` — a redeploy has silently dropped them before.
 - **Local daily agent (macOS):** `./setup_daily.sh install` renders a git-ignored launchd plist from `*.plist.template` and schedules a report-only run (no `--trade`) so it does not double-fill the paper account.
 - **Container:** `docker build -t trading-bot .` — secrets are injected at runtime (`--env`).
 
