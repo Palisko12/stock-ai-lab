@@ -86,23 +86,33 @@ def main():
             equity_open=cash+sum(q*opens[s] for s,q in positions.items())
             old={s:q*opens[s]/equity_open for s,q in positions.items()} if equity_open>0 else {}
             turnover+=sum(abs(target.get(s,0)-old.get(s,0)) for s in set(old)|set(target))
-            # Liquidate positions first, then buy new targets. Cost charged each side.
-            for s,q in list(positions.items()):
-                if q>0:
-                    proceeds=q*opens[s]
-                    total_fee_dollars+=proceeds*cost_rate
+            # Net trades only: preserve unchanged positions and rebalance differences.
+            # Target notional uses pre-fee equity. Sells happen before buys; buys scale to cash.
+            desired={sym:equity_open*weight for sym,weight in target.items()}
+            for sym,qty in list(positions.items()):
+                current=qty*opens[sym]
+                sell_notional=max(0.0,current-desired.get(sym,0.0))
+                if sell_notional>1e-8:
+                    sell_qty=min(qty,sell_notional/opens[sym])
+                    proceeds=sell_qty*opens[sym]
                     cash+=proceeds*(1-cost_rate)
+                    total_fee_dollars+=proceeds*cost_rate
+                    positions[sym]=qty-sell_qty
                     trades+=1
-            positions={}
-            # Budget enough cash to cover fees; residual stays cash.
-            investable=cash/(1+cost_rate)
-            for s,w in target.items():
-                budget=investable*w
-                qty=budget/opens[s]
-                positions[s]=qty
-                total_fee_dollars+=qty*opens[s]*cost_rate
-                cash-=qty*opens[s]*(1+cost_rate)
+                    if positions[sym]<1e-10:del positions[sym]
+            buys={sym:max(0.0,wanted-positions.get(sym,0.0)*opens[sym])
+                  for sym,wanted in desired.items()}
+            required=sum(buys.values())*(1+cost_rate)
+            scale=min(1.0,max(0.0,cash)/required) if required>0 else 0.0
+            for sym,notional in buys.items():
+                actual=notional*scale
+                if actual<=1e-8:continue
+                qty=actual/opens[sym]
+                positions[sym]=positions.get(sym,0.0)+qty
+                cash-=actual*(1+cost_rate)
+                total_fee_dollars+=actual*cost_rate
                 trades+=1
+            if cash< -1e-6:raise AssertionError("negative cash after rebalance")
         equity_close=cash+sum(q*closes[s] for s,q in positions.items())
         peak=max(peak,equity_close)
         max_dd=min(max_dd,equity_close/peak-1)
