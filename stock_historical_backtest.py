@@ -20,8 +20,18 @@ def get_bars(symbol,start,end):
     d.index=pd.DatetimeIndex(d.index).tz_localize(None).normalize()
     return d if len(d)>=100 else None
 
-def weights_at(bars,decision_day,tickers):
+def weights_at(bars,decision_day,tickers,risk_filter="off"):
     candidates=[]
+    if risk_filter!="off":
+        benchmark=bars["SPY"]["Close"]
+        ix=benchmark.index.searchsorted(decision_day,side="right")-1
+        # A full 200-session moving average evaluated at decision close only.
+        if ix<199 or benchmark.index[ix]!=decision_day:
+            return {}
+        spy_now=float(benchmark.iloc[ix])
+        spy_ma200=float(benchmark.iloc[ix-199:ix+1].mean())
+        if not np.isfinite(spy_now) or not np.isfinite(spy_ma200) or spy_now<=spy_ma200:
+            return {}
     for sym in tickers:
         df=bars[sym]
         ix=df.index.searchsorted(decision_day,side="right")-1
@@ -45,6 +55,7 @@ def main():
     a.add_argument("--fee-bps",type=float,default=10)
     a.add_argument("--rebalance-days",type=int,default=21)
     a.add_argument("--capital",type=float,default=10000)
+    a.add_argument("--risk-filter",choices=("off","spy-ma200"),default="off")
     args=a.parse_args()
     if args.fee_bps<0 or args.rebalance_days<1 or args.capital<=0:a.error("invalid fee, rebalance days, or capital")
     tickers=list(dict.fromkeys(x.strip().upper() for x in args.tickers.split(",") if x.strip()))
@@ -78,7 +89,7 @@ def main():
     prev=bars["SPY"].index[bars["SPY"].index < dates[0]]
     if len(prev)==0:raise SystemExit("No pre-start session")
     signal_day=prev[-1]
-    target=weights_at(bars,signal_day,tickers)
+    target=weights_at(bars,signal_day,tickers,args.risk_filter)
     for i,day in enumerate(dates):
         opens={s:float(bars[s].loc[day,"Open"]) for s in tickers}
         closes={s:float(bars[s].loc[day,"Close"]) for s in tickers}
@@ -119,7 +130,7 @@ def main():
         close_equities.append(equity_close)
         # Make next decision at TODAY's close; do not use tomorrow's close.
         if (i+1)%args.rebalance_days==0:
-            target=weights_at(bars,day,tickers)
+            target=weights_at(bars,day,tickers,args.risk_filter)
     ending=close_equities[-1]
     first=dates[0];last=dates[-1]
     spy=bars["SPY"]
@@ -127,14 +138,14 @@ def main():
     benchmark_equity=[args.capital*float(spy.loc[day,"Close"])/float(spy.loc[first,"Open"]) for day in dates]
     years=max((last-first).days/365.25,1/365.25)
     r={"mode":"BACKTEST_NO_ORDERS","start":str(first.date()),"end":str(last.date()),"sessions":len(dates),
-       "universe":tickers,"fee_bps_each_side":args.fee_bps,"rebalance_days":args.rebalance_days,
+       "universe":tickers,"risk_filter":args.risk_filter,"fee_bps_each_side":args.fee_bps,"rebalance_days":args.rebalance_days,
        "initial_capital":args.capital,"ending_equity":round(ending,2),
        "total_return_pct":round(100*(ending/args.capital-1),2),
        "annualized_return_pct":round(100*((ending/args.capital)**(1/years)-1),2),
        "max_drawdown_pct":round(100*max_dd,2),"SPY_return_pct":round(100*spy_return,2),
        "orders_simulated":trades,"turnover_weight_sum":round(turnover,2),
        "total_fees_usd":round(total_fee_dollars,2),
-       "caveats":"Research-only. Fixed 2026 universe creates survivorship/selection bias; no dividends, slippage beyond fees, taxes, liquidity, or broker fills. Partial shares; possible corporate-action distortions."}
+       "caveats":"Research only. MA200 cash gate based on SPY close, orders next open. Fixed 2026 universe creates survivorship/selection bias. No dividends, taxes, realistic slippage, spread or full corporate action validation. Parameter selection on these years risks overfitting."}
     Path("backtest_output").mkdir(exist_ok=True)
     Path("backtest_output/results.json").write_text(json.dumps(r,indent=2),encoding="utf-8")
     pd.DataFrame({"date":[str(d.date()) for d in dates],"equity":close_equities,"spy_equity":benchmark_equity}).to_csv("backtest_output/equity.csv",index=False)
